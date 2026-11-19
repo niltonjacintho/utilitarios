@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+}
+
+.mindmap-dot-grid {
+  background-image: radial-gradient(rgba(100, 116, 139, 0.28) 1px, transparent 1px);
+  background-size: 20px 20px;
+}

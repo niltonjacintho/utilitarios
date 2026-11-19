@@ -1,0 +1,21 @@
+{
+  "name": "hub-prototipos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hub de Protótipos — Plataforma de modelagem e diagramas (Next.js + React + NestJS)",
+  "scripts": {
+    "install:all": "npm --prefix backend install && npm --prefix frontend install && npm --prefix mindmap install && npm --prefix flowchart install && npm --prefix erstudio install",
+    "dev:backend": "npm --prefix backend run start:dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:mindmap": "npm --prefix mindmap run dev",
+    "dev:flowchart": "npm --prefix flowchart run dev",
+    "dev:erstudio": "npm --prefix erstudio run dev",
+    "dev": "node scripts/dev.mjs",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:mindmap": "npm --prefix mindmap run build",
+    "build:flowchart": "npm --prefix flowchart run build",
+    "build:erstudio": "npm --prefix erstudio run build",
+    "build": "npm run build:backend && npm run build:frontend && npm run build:mindmap && npm run build:flowchart && npm run build:erstudio"
+  }
+}

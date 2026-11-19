@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+    background-color: #f3f6fb;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.er-dot-grid {
+  background-color: #f6f8fc;
+  background-image: radial-gradient(rgba(100, 116, 139, 0.24) 1px, transparent 1px);
+  background-size: 20px 20px;
+}

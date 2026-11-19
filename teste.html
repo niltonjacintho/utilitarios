@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>teste — Relatório MindMap</title>
+  <style>
+    :root {
+      --navy: #0B2A5B;
+      --royal: #0F4C9C;
+      --teal: #0F766E;
+      --amber: #C78A1B;
+      --indigo: #4F46E5;
+      --bg: #F3F6FB;
+      --surface: #FFFFFF;
+      --ink: #0F172A;
+      --muted: #64748B;
+      --border: #E2E8F0;
+      --canvas-bg: #F8FAFC;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+
+    /* Hero Header */
+    .hero {
+      background: linear-gradient(125deg, #092047 0%, #0B3B78 52%, #0E6BA8 100%);
+      color: #FFFFFF;
+      padding: 28px 24px 32px;
+      box-shadow: 0 8px 28px rgba(9, 32, 71, 0.18);
+    }
+    .hero-inner {
+      max-width: 1240px;
+      margin: 0 auto;
+    }
+    .hero-top {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .brand-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 999px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      margin-bottom: 10px;
+    }
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(22px, 3vw, 30px);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .hero-sub {
+      margin: 6px 0 0;
+      font-size: 13.5px;
+      color: rgba(226, 238, 255, 0.88);
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .kpi {
+      background: rgba(255, 255, 255, 0.11);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(6px);
+      border-radius: 14px;
+      padding: 12px 16px;
+    }
+    .kpi-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(226, 238, 255, 0.8); }
+    .kpi-value { font-size: 22px; font-weight: 800; margin-top: 2px; }
+    .progress-bar {
+      margin-top: 8px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #34D399, #2DD4BF);
+      border-radius: 999px;
+    }
+
+    /* Main Layout */
+    main {
+      max-width: 1240px;
+      margin: 24px auto 56px;
+      padding: 0 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .section-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+    }
+    .section-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #FFFFFF 0%, #FAFBFD 100%);
+    }
+    .section-title {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--navy);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-body {
+      padding: 20px 22px;
+    }
+
+    /* AI Summary Card */
+    .ai-card {
+      position: relative;
+      border: 1px solid #C7D7FE;
+      background: linear-gradient(135deg, #FFFFFF 0%, #F5F8FF 60%, #F0FDFB 100%);
+    }
+    .ai-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 5px;
+      background: linear-gradient(180deg, #2563EB, #0EA5E9, #0F766E);
+    }
+    .ai-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #E2E8F0;
+      color: #475569;
+    }
+    .ai-overview {
+      margin: 0;
+      font-size: 15px;
+      color: #1E293B;
+      line-height: 1.65;
+    }
+    .ai-columns {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .ai-subbox {
+      border-radius: 14px;
+      padding: 14px 16px;
+      border: 1px solid transparent;
+    }
+    .ai-subbox.highlights {
+      background: #F0FDFA;
+      border-color: #CCFBF1;
+    }
+    .ai-subbox.attention {
+      background: #FFFBEB;
+      border-color: #FDE68A;
+    }
+    .ai-subbox h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .ai-subbox.highlights h3 { color: #0F766E; }
+    .ai-subbox.attention h3 { color: #B45309; }
+    .ai-subbox ul {
+      margin: 0;
+      padding-left: 18px;
+      font-size: 13.5px;
+      color: #334155;
+    }
+    .ai-subbox li { margin: 5px 0; }
+
+    /* Resizable Interactive Map */
+    .map-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .tool-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 32px;
+      padding: 0 11px;
+      border-radius: 8px;
+      border: 1px solid #CBD5E1;
+      background: #FFFFFF;
+      color: #1E293B;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .tool-btn:hover { background: #EFF6FF; border-color: #2563EB; color: #1D4ED8; }
+    .zoom-readout {
+      min-width: 48px;
+      text-align: center;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--navy);
+    }
+    .map-viewport {
+      position: relative;
+      height: 520px;
+      min-height: 280px;
+      max-height: 85vh;
+      overflow: hidden;
+      background-color: var(--canvas-bg);
+      background-image: radial-gradient(rgba(100, 116, 139, 0.28) 1px, transparent 1px);
+      background-size: 20px 20px;
+      cursor: grab;
+      user-select: none;
+    }
+    .map-viewport.dragging { cursor: grabbing; }
+    .map-stage {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transform-origin: 0 0;
+    }
+    .map-stage .svg-node rect {
+      transition: filter 0.15s ease, stroke-width 0.15s ease;
+    }
+    .map-stage .svg-node:hover rect {
+      filter: drop-shadow(0 4px 10px rgba(11, 42, 91, 0.18));
+      stroke-width: 2.6;
+    }
+    .map-hint {
+      position: absolute;
+      left: 14px;
+      bottom: 12px;
+      background: rgba(15, 23, 42, 0.72);
+      color: #FFFFFF;
+      padding: 5px 11px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      pointer-events: none;
+    }
+    .resize-handle {
+      height: 16px;
+      background: #F1F5F9;
+      border-top: 1px solid var(--border);
+      cursor: ns-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: #64748B;
+      font-size: 11px;
+      font-weight: 600;
+      user-select: none;
+    }
+    .resize-handle:hover { background: #E2E8F0; color: var(--navy); }
+    .resize-bar {
+      width: 44px;
+      height: 4px;
+      border-radius: 999px;
+      background: #94A3B8;
+    }
+
+    /* Filters & Controls */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .search-input {
+      flex: 1;
+      min-width: 220px;
+      height: 38px;
+      padding: 0 14px;
+      border-radius: 10px;
+      border: 1px solid #CBD5E1;
+      font-size: 13.5px;
+      color: var(--ink);
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+    .search-input:focus { border-color: #2563EB; }
+    .filter-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .filter-pill {
+      height: 34px;
+      padding: 0 13px;
+      border-radius: 999px;
+      border: 1px solid #CBD5E1;
+      background: #FFFFFF;
+      color: #475569;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .filter-pill.active, .filter-pill:hover {
+      background: var(--navy);
+      border-color: var(--navy);
+      color: #FFFFFF;
+    }
+
+    /* Node Detail Cards */
+    .nodes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 14px;
+    }
+    .node-card {
+      position: relative;
+      background: #FFFFFF;
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--node-accent);
+      border-radius: 14px;
+      padding: 15px 16px;
+      transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .node-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.07);
+    }
+    .node-card.highlight-pulse {
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35), 0 10px 24px rgba(15, 23, 42, 0.1);
+      border-color: #2563EB;
+    }
+    .node-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .node-breadcrumb {
+      font-size: 11.5px;
+      color: var(--muted);
+      margin-bottom: 3px;
+    }
+    .node-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .node-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .level-pill {
+      background: var(--node-soft);
+      color: var(--node-text);
+      white-space: nowrap;
+    }
+    .status-done { background: #DCFCE7; color: #166534; }
+    .status-open { background: #F1F5F9; color: #475569; }
+    .exec-pill { background: #EDE9FE; color: #5B21B6; }
+    .date-pill { background: #FEF3C7; color: #92400E; }
+    .comment-link { background: #DBEAFE; color: #1D4ED8; cursor: pointer; }
+    .comment-link:hover { background: #BFDBFE; }
+    .node-notes {
+      margin-top: 12px;
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .node-notes-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .node-notes p {
+      margin: 0;
+      font-size: 13px;
+      color: #334155;
+    }
+
+    /* Comments Section */
+    .comments-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .comment-card {
+      display: flex;
+      gap: 14px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: #FAFBFD;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .comment-card:hover { background: #FFFFFF; border-color: #CBD5E1; }
+    .comment-avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      color: #FFFFFF;
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .comment-body { flex: 1; min-width: 0; }
+    .comment-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .comment-author { font-size: 14px; color: var(--ink); }
+    .comment-date { font-size: 12px; color: var(--muted); margin-left: 8px; }
+    .comment-node-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .comment-path {
+      font-size: 11.5px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .comment-text {
+      margin: 8px 0 0;
+      font-size: 13.5px;
+      color: #1E293B;
+    }
+    .empty-box {
+      text-align: center;
+      padding: 28px;
+      border-radius: 12px;
+      background: #F8FAFC;
+      border: 1px dashed #CBD5E1;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .hidden { display: none !important; }
+
+    @media (max-width: 640px) {
+      .nodes-grid { grid-template-columns: 1fr; }
+      .section-header, .section-body { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="hero-top">
+        <div>
+          <div class="brand-chip">✦ MindMap • Relatório Interativo</div>
+          <h1>teste</h1>
+          <p class="hero-sub">
+            Proprietário: <strong>Nilton Cesar</strong> • Atualizado em 19/11/2026, 13:21 • Exportado em 19/11/2026, 14:24
+          </p>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-label">Total de Itens</div>
+          <div class="kpi-value">2</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Concluídos</div>
+          <div class="kpi-value">0 <span style="font-size:13px;font-weight:600;opacity:0.85;">(0%)</span></div>
+          <div class="progress-bar"><div class="progress-fill"></div></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Notas Detalhadas</div>
+          <div class="kpi-value">0</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Comentários</div>
+          <div class="kpi-value">0</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 1. Resumo Executivo por IA -->
+    <section class="section-card ai-card" aria-labelledby="ai-summary-title">
+      <div class="section-header">
+        <h2 id="ai-summary-title" class="section-title">✦ Resumo Executivo</h2>
+        <span class="ai-badge">
+          Resumo automático do mapa
+        </span>
+      </div>
+      <div class="section-body">
+        <p class="ai-overview">O mapa &quot;teste&quot; reúne 2 itens organizados em 1 frente(s) principal(is), com 0 tarefa(s) concluída(s), 0 nota(s) detalhada(s) e 0 comentário(s) registrados.</p>
+
+        <div class="ai-columns">
+          <div class="ai-subbox highlights">
+                  <h3>Principais destaques</h3>
+                  <ul><li>Frente mapeada: Tópico principal</li></ul>
+                </div>
+          <div class="ai-subbox attention">
+                  <h3>Pontos de atenção</h3>
+                  <ul><li>2 item(ns) ainda em aberto para acompanhamento.</li></ul>
+                </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Mapa Mental Interativo & Redimensionável -->
+    <section class="section-card" aria-labelledby="map-section-title">
+      <div class="section-header">
+        <h2 id="map-section-title" class="section-title">Mapa Mental</h2>
+        <div class="map-toolbar">
+          <button type="button" class="tool-btn" id="btn-zoom-out" title="Diminuir zoom">−</button>
+          <span class="zoom-readout" id="zoom-readout">100%</span>
+          <button type="button" class="tool-btn" id="btn-zoom-in" title="Aumentar zoom">+</button>
+          <button type="button" class="tool-btn" id="btn-fit">Ajustar à tela</button>
+          <button type="button" class="tool-btn" id="btn-reset">100%</button>
+        </div>
+      </div>
+
+      <div id="map-viewport" class="map-viewport">
+        <div id="map-stage" class="map-stage">
+          <?xml version="1.0" encoding="UTF-8"?>
+<svg id="mindmap-svg" xmlns="http://www.w3.org/2000/svg" width="900" height="540" viewBox="0 0 900 540">
+  <rect width="100%" height="100%" fill="#F8FAFC" />
+  <path d="M 216 94 C 249.28 94, 246.72 94, 280 94" fill="none" stroke="#0E7478" stroke-width="2" stroke-linecap="round" />
+  
+        <g class="svg-node" data-node-id="e69ff85b-6b2d-4f0e-a784-0acdfa21b4c8" style="cursor:pointer;">
+          <rect x="64" y="56" width="152" height="76" rx="12" fill="#0B2A5B" stroke="#0B2A5B" stroke-width="1.8" />
+          <text x="140" y="99" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="700" fill="#FFFFFF">teste</text>
+          
+          
+        </g>
+
+        <g class="svg-node" data-node-id="b7b36085-99fc-4aa1-b97c-47c9372ce9c4" style="cursor:pointer;">
+          <rect x="280" y="72" width="167" height="44" rx="12" fill="#E2F3F2" stroke="#127A7D" stroke-width="1.8" />
+          <text x="296" y="99" text-anchor="start" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13.5" font-weight="500" fill="#0F2937">Tópico principal</text>
+          
+          
+        </g>
+</svg>
+        </div>
+        <div class="map-hint">Arraste para mover • Ctrl + Scroll para zoom • Clique em um nó para ver detalhes</div>
+      </div>
+      <div id="resize-handle" class="resize-handle" title="Arraste para redimensionar a altura do mapa">
+        <span class="resize-bar"></span>
+      </div>
+    </section>
+
+    <!-- 3. Detalhes dos Nós -->
+    <section id="nodes-section" class="section-card" aria-labelledby="nodes-section-title">
+      <div class="section-header">
+        <h2 id="nodes-section-title" class="section-title">Detalhes dos Nós (2)</h2>
+      </div>
+      <div class="section-body">
+        <div class="filter-bar">
+          <input id="node-search" class="search-input" type="search" placeholder="Filtrar nós por título, nota ou executor..." />
+          <div class="filter-pills">
+            <button type="button" class="filter-pill active" data-filter="all">Todos</button>
+            <button type="button" class="filter-pill" data-filter="open">Em aberto</button>
+            <button type="button" class="filter-pill" data-filter="done">Concluídos</button>
+            <button type="button" class="filter-pill" data-filter="notes">Com notas</button>
+            <button type="button" class="filter-pill" data-filter="comments">Com comentários</button>
+          </div>
+        </div>
+
+        <div id="nodes-grid" class="nodes-grid">
+          
+      <article
+        id="node-card-e69ff85b-6b2d-4f0e-a784-0acdfa21b4c8"
+        class="node-card"
+        data-node-id="e69ff85b-6b2d-4f0e-a784-0acdfa21b4c8"
+        data-completed="0"
+        data-has-notes="0"
+        data-has-comments="0"
+        data-search="teste teste  "
+        style="--node-accent:#0B2A5B;--node-soft:#E8EEF8;--node-text:#0B2A5B;"
+      >
+        <div class="node-card-head">
+          <div>
+            <div class="node-breadcrumb">teste</div>
+            <h3 class="node-title">teste</h3>
+          </div>
+          <span class="pill level-pill">Raiz</span>
+        </div>
+
+        <div class="node-meta-row">
+          <span class="pill status-open">
+            ○ Em aberto
+          </span>
+          
+          
+          
+        </div>
+
+        
+      </article>
+
+      <article
+        id="node-card-b7b36085-99fc-4aa1-b97c-47c9372ce9c4"
+        class="node-card"
+        data-node-id="b7b36085-99fc-4aa1-b97c-47c9372ce9c4"
+        data-completed="0"
+        data-has-notes="0"
+        data-has-comments="0"
+        data-search="tópico principal teste tópico principal  "
+        style="--node-accent:#0F766E;--node-soft:#E3F5F3;--node-text:#0F766E;"
+      >
+        <div class="node-card-head">
+          <div>
+            <div class="node-breadcrumb">teste › Tópico principal</div>
+            <h3 class="node-title">Tópico principal</h3>
+          </div>
+          <span class="pill level-pill">Nível 1</span>
+        </div>
+
+        <div class="node-meta-row">
+          <span class="pill status-open">
+            ○ Em aberto
+          </span>
+          
+          
+          
+        </div>
+
+        
+      </article>
+        </div>
+        <div id="nodes-empty" class="empty-box hidden">Nenhum nó encontrado com os filtros selecionados.</div>
+      </div>
+    </section>
+
+    <!-- 4. Comentários -->
+    <section id="comments-section" class="section-card" aria-labelledby="comments-section-title">
+      <div class="section-header">
+        <h2 id="comments-section-title" class="section-title">Comentários (0)</h2>
+        <button type="button" id="btn-clear-comment-filter" class="tool-btn hidden">Mostrar todos os comentários</button>
+      </div>
+      <div class="section-body">
+        
+        <div id="comments-list" class="comments-list">
+          <div class="empty-box">Nenhum comentário registrado neste mapa.</div>
+        </div>
+        <div id="comments-empty" class="empty-box hidden">Nenhum comentário corresponde ao filtro.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const viewport = document.getElementById('map-viewport');
+      const stage = document.getElementById('map-stage');
+      const zoomReadout = document.getElementById('zoom-readout');
+      const resizeHandle = document.getElementById('resize-handle');
+      const svgWidth = 900;
+      const svgHeight = 540;
+
+      let zoom = 1;
+      let panX = 16;
+      let panY = 16;
+
+      function renderTransform() {
+        stage.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoom + ')';
+        zoomReadout.textContent = Math.round(zoom * 100) + '%';
+      }
+
+      function fitToViewport() {
+        const vw = Math.max(240, viewport.clientWidth - 28);
+        const vh = Math.max(200, viewport.clientHeight - 28);
+        const ratio = Math.min(1, vw / svgWidth, vh / svgHeight);
+        zoom = Math.max(0.35, Math.min(1.5, Number(ratio.toFixed(2))));
+        panX = Math.max(12, Math.round((viewport.clientWidth - svgWidth * zoom) / 2));
+        panY = Math.max(12, Math.round((viewport.clientHeight - svgHeight * zoom) / 2));
+        renderTransform();
+      }
+
+      document.getElementById('btn-zoom-in').addEventListener('click', () => {
+        zoom = Math.min(2.2, Number((zoom + 0.15).toFixed(2)));
+        renderTransform();
+      });
+      document.getElementById('btn-zoom-out').addEventListener('click', () => {
+        zoom = Math.max(0.3, Number((zoom - 0.15).toFixed(2)));
+        renderTransform();
+      });
+      document.getElementById('btn-fit').addEventListener('click', fitToViewport);
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        zoom = 1;
+        panX = 20;
+        panY = 20;
+        renderTransform();
+      });
+
+      // Pan no viewport
+      let dragging = false;
+      let startX = 0, startY = 0, origPanX = 0, origPanY = 0;
+      viewport.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.svg-node')) return;
+        dragging = true;
+        viewport.classList.add('dragging');
+        startX = e.clientX;
+        startY = e.clientY;
+        origPanX = panX;
+        origPanY = panY;
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        panX = origPanX + (e.clientX - startX);
+        panY = origPanY + (e.clientY - startY);
+        renderTransform();
+      });
+      window.addEventListener('mouseup', () => {
+        dragging = false;
+        viewport.classList.remove('dragging');
+      });
+      viewport.addEventListener('wheel', (e) => {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.1 : -0.1;
+        zoom = Math.min(2.2, Math.max(0.3, Number((zoom + delta).toFixed(2))));
+        renderTransform();
+      }, { passive: false });
+
+      // Redimensionar altura do mapa arrastando a barra inferior
+      let resizing = false;
+      let resizeStartY = 0;
+      let resizeStartH = 0;
+      resizeHandle.addEventListener('mousedown', (e) => {
+        resizing = true;
+        resizeStartY = e.clientY;
+        resizeStartH = viewport.clientHeight;
+        document.body.style.cursor = 'ns-resize';
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!resizing) return;
+        const nextH = Math.max(280, Math.min(window.innerHeight * 0.85, resizeStartH + (e.clientY - resizeStartY)));
+        viewport.style.height = Math.round(nextH) + 'px';
+      });
+      window.addEventListener('mouseup', () => {
+        if (!resizing) return;
+        resizing = false;
+        document.body.style.cursor = '';
+      });
+
+      // Destacar card ao clicar no nó do SVG ou no link de comentário
+      function focusNodeCard(nodeId) {
+        const card = document.getElementById('node-card-' + nodeId);
+        if (!card) return;
+        card.classList.remove('hidden');
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('highlight-pulse');
+        setTimeout(() => card.classList.remove('highlight-pulse'), 1800);
+      }
+
+      document.querySelectorAll('.svg-node').forEach((el) => {
+        el.addEventListener('click', () => {
+          const id = el.getAttribute('data-node-id');
+          if (id) focusNodeCard(id);
+        });
+      });
+
+      document.querySelectorAll('[data-jump-node]').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          const id = el.getAttribute('data-jump-node');
+          if (id) focusNodeCard(id);
+        });
+      });
+
+      // Filtros de Nós
+      const nodeSearch = document.getElementById('node-search');
+      const nodeCards = Array.from(document.querySelectorAll('.node-card'));
+      const nodesEmpty = document.getElementById('nodes-empty');
+      let activeNodeFilter = 'all';
+
+      function applyNodeFilters() {
+        const q = (nodeSearch?.value || '').trim().toLowerCase();
+        let visible = 0;
+        nodeCards.forEach((card) => {
+          const matchSearch = !q || (card.dataset.search || '').includes(q);
+          let matchFilter = true;
+          if (activeNodeFilter === 'done') matchFilter = card.dataset.completed === '1';
+          else if (activeNodeFilter === 'open') matchFilter = card.dataset.completed === '0';
+          else if (activeNodeFilter === 'notes') matchFilter = card.dataset.hasNotes === '1';
+          else if (activeNodeFilter === 'comments') matchFilter = card.dataset.hasComments === '1';
+
+          const show = matchSearch && matchFilter;
+          card.classList.toggle('hidden', !show);
+          if (show) visible += 1;
+        });
+        nodesEmpty.classList.toggle('hidden', visible > 0);
+      }
+
+      if (nodeSearch) nodeSearch.addEventListener('input', applyNodeFilters);
+      document.querySelectorAll('.filter-pill').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.filter-pill').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeNodeFilter = btn.getAttribute('data-filter') || 'all';
+          applyNodeFilters();
+        });
+      });
+
+      // Filtros de Comentários
+      const commentSearch = document.getElementById('comment-search');
+      const commentCards = Array.from(document.querySelectorAll('.comment-card'));
+      const commentsEmpty = document.getElementById('comments-empty');
+      const clearCommentFilterBtn = document.getElementById('btn-clear-comment-filter');
+      let filterCommentNodeId = null;
+
+      function applyCommentFilters() {
+        if (commentCards.length === 0) return;
+        const q = (commentSearch?.value || '').trim().toLowerCase();
+        let visible = 0;
+        commentCards.forEach((card) => {
+          const matchNode = !filterCommentNodeId || card.dataset.commentNode === filterCommentNodeId;
+          const matchSearch = !q || (card.dataset.search || '').includes(q);
+          const show = matchNode && matchSearch;
+          card.classList.toggle('hidden', !show);
+          if (show) visible += 1;
+        });
+        commentsEmpty.classList.toggle('hidden', visible > 0);
+        clearCommentFilterBtn.classList.toggle('hidden', !filterCommentNodeId);
+      }
+
+      if (commentSearch) commentSearch.addEventListener('input', applyCommentFilters);
+      if (clearCommentFilterBtn) {
+        clearCommentFilterBtn.addEventListener('click', () => {
+          filterCommentNodeId = null;
+          applyCommentFilters();
+        });
+      }
+
+      document.querySelectorAll('[data-filter-node]').forEach((el) => {
+        el.addEventListener('click', () => {
+          filterCommentNodeId = el.getAttribute('data-filter-node');
+          applyCommentFilters();
+        });
+      });
+
+      fitToViewport();
+      window.addEventListener('resize', () => {
+        if (zoom < 1) fitToViewport();
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+.env
+.env.local
+client_secret_*.json
+*.log
+.hub-pids.txt
+.hub-pids.linux
+.hub-logs/
+backend/data/*.sqlite
+backend/data/*.sqlite-wal
+backend/data/*.sqlite-shm
+
+
+
