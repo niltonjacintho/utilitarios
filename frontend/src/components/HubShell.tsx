@@ -4,32 +4,40 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthUser, HubConfigResponse } from '@/types/hub';
 import { authApi } from '@/lib/auth';
+import { FALLBACK_HUB_CONFIG, fetchHubConfig } from '@/lib/api';
 import { HubHeader } from './HubHeader';
 import { HubWorkspace } from './HubWorkspace';
 
 interface HubShellProps {
-  config: HubConfigResponse;
+  initialConfig?: HubConfigResponse;
 }
 
-export function HubShell({ config }: HubShellProps) {
+export function HubShell({ initialConfig }: HubShellProps) {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [config, setConfig] = useState<HubConfigResponse>(
+    initialConfig ?? FALLBACK_HUB_CONFIG,
+  );
 
   useEffect(() => {
     let active = true;
 
-    async function verifySession() {
+    async function bootstrapHub() {
       try {
-        const res = await authApi.me();
+        const [authRes, hubRes] = await Promise.all([
+          authApi.me(),
+          fetchHubConfig(),
+        ]);
         if (!active) return;
 
-        if (!res.authenticated || !res.user) {
+        if (!authRes.authenticated || !authRes.user) {
           router.replace('/login');
           return;
         }
 
-        setUser(res.user);
+        setConfig(hubRes.data);
+        setUser(authRes.user);
       } catch {
         if (active) {
           router.replace('/login');
@@ -41,7 +49,7 @@ export function HubShell({ config }: HubShellProps) {
       }
     }
 
-    void verifySession();
+    void bootstrapHub();
     return () => {
       active = false;
     };

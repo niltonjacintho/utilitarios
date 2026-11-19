@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { Client as PgClient } from 'pg';
 import * as mysql from 'mysql2/promise';
 import {
@@ -361,10 +360,12 @@ export class DbIntrospectorService {
     }
   }
 
-  private introspectSqliteReadOnly(config: ErDbConnectionTestInput): {
+  private async introspectSqliteReadOnly(
+    config: ErDbConnectionTestInput,
+  ): Promise<{
     tables: ErTable[];
     relations: ErRelation[];
-  } {
+  }> {
     const filePath = resolve(config.database.trim());
     if (!existsSync(filePath)) {
       throw new BadRequestException(
@@ -372,6 +373,7 @@ export class DbIntrospectorService {
       );
     }
 
+    const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(filePath, { readOnly: true });
     try {
       const tableRows = db

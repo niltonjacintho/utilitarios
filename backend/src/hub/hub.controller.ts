@@ -12,9 +12,9 @@ export class HubController {
   ) {}
 
   @Get('hub')
-  getHubConfig(@Req() req: Request): HubConfigResponse {
+  async getHubConfig(@Req() req: Request): Promise<HubConfigResponse> {
     const token = this.authService.extractSessionToken(req);
-    const authUser = this.authService.getUserBySessionToken(token);
+    const authUser = await this.authService.getUserBySessionToken(token);
     return this.hubService.getHubConfig(authUser);
   }
 

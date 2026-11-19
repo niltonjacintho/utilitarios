@@ -8,8 +8,8 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { Request } from 'express';
-import { SqliteService } from '../database/sqlite.service';
+import type { CookieOptions, Request } from 'express';
+import { DatabaseService } from '../database/database.service';
 import {
   AuthProvider,
   AuthProvidersResponse,
@@ -57,9 +57,12 @@ export class AuthService {
   private readonly hubAppUrl: string;
   private readonly allowedOrigins: string[];
   private readonly sessionTtlDays: number;
+  private readonly cookieSameSite: 'lax' | 'none' | 'strict';
+  private readonly cookieSecure: boolean;
+  private readonly cookieDomain: string | undefined;
 
   constructor(
-    private readonly sqlite: SqliteService,
+    private readonly db: DatabaseService,
     private readonly configService: ConfigService,
   ) {
     this.googleClientId = (
@@ -104,6 +107,63 @@ export class AuthService {
 
     const rawTtl = Number(this.configService.get<string>('SESSION_TTL_DAYS') ?? 7);
     this.sessionTtlDays = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : 7;
+
+    // Configuração automática de cookies para PRD (HTTPS / cross-site / subdomínios)
+    const isProd =
+      (this.configService.get<string>('NODE_ENV') ?? '').toLowerCase() ===
+        'production' || this.hubAppUrl.startsWith('https://');
+
+    const rawDomain = (
+      this.configService.get<string>('COOKIE_DOMAIN') ?? ''
+    ).trim();
+    this.cookieDomain = rawDomain || undefined;
+
+    const rawSameSite = (
+      this.configService.get<string>('COOKIE_SAME_SITE') ?? ''
+    )
+      .trim()
+      .toLowerCase();
+    if (
+      rawSameSite === 'lax' ||
+      rawSameSite === 'none' ||
+      rawSameSite === 'strict'
+    ) {
+      this.cookieSameSite = rawSameSite;
+    } else {
+      // Sem domínio compartilhado em HTTPS/PRD -> 'none' para funcionar entre *.pages.dev e *.koyeb.app
+      this.cookieSameSite = isProd && !this.cookieDomain ? 'none' : 'lax';
+    }
+
+    const rawSecure = (
+      this.configService.get<string>('COOKIE_SECURE') ?? ''
+    )
+      .trim()
+      .toLowerCase();
+    if (rawSecure === 'true' || rawSecure === '1') {
+      this.cookieSecure = true;
+    } else if (rawSecure === 'false' || rawSecure === '0') {
+      this.cookieSecure = false;
+    } else {
+      this.cookieSecure = this.cookieSameSite === 'none' || isProd;
+    }
+  }
+
+  getCookieOptions(maxAge?: number, forOauthState = false): CookieOptions {
+    // OAuth state precisa sobreviver ao redirecionamento de volta do Google -> 'lax' ou 'none'
+    const sameSite = forOauthState
+      ? this.cookieSameSite === 'strict'
+        ? 'lax'
+        : this.cookieSameSite
+      : this.cookieSameSite;
+
+    return {
+      httpOnly: true,
+      sameSite,
+      secure: this.cookieSecure || sameSite === 'none',
+      path: '/',
+      ...(this.cookieDomain ? { domain: this.cookieDomain } : {}),
+      ...(maxAge !== undefined ? { maxAge } : {}),
+    };
   }
 
   getProviders(): AuthProvidersResponse {
@@ -147,7 +207,9 @@ export class AuthService {
     }
   }
 
-  register(input: RegisterInput): { user: AuthUser; token: string } {
+  async register(
+    input: RegisterInput,
+  ): Promise<{ user: AuthUser; token: string }> {
     const name = input.name?.trim();
     const email = input.email?.trim().toLowerCase();
     const password = input.password ?? '';
@@ -164,34 +226,38 @@ export class AuthService {
       );
     }
 
-    const db = this.sqlite.connection;
-    const existing = db
-      .prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)')
-      .get(email) as { id: string } | undefined;
+    const existing = await this.db.queryOne<{ id: string }>(
+      'SELECT id FROM users WHERE LOWER(email) = LOWER(?)',
+      [email],
+    );
 
     if (existing) {
-      throw new ConflictException('Já existe uma conta cadastrada com este e-mail.');
+      throw new ConflictException(
+        'Já existe uma conta cadastrada com este e-mail.',
+      );
     }
 
     const id = randomUUID();
     const now = new Date().toISOString();
     const passwordHash = hashPassword(password);
 
-    db.prepare(
+    await this.db.execute(
       `INSERT INTO users (id, name, email, password_hash, provider, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'local', ?, ?)`,
-    ).run(id, name, email, passwordHash, now, now);
+      [id, name, email, passwordHash, now, now],
+    );
 
-    const row = db
-      .prepare('SELECT * FROM users WHERE id = ?')
-      .get(id) as unknown as UserRow;
+    const row = (await this.db.queryOne<UserRow>(
+      'SELECT * FROM users WHERE id = ?',
+      [id],
+    ))!;
 
     const user = this.toAuthUser(row);
-    const token = this.createSession(user.id);
+    const token = await this.createSession(user.id);
     return { user, token };
   }
 
-  login(input: LoginInput): { user: AuthUser; token: string } {
+  async login(input: LoginInput): Promise<{ user: AuthUser; token: string }> {
     const email = input.email?.trim().toLowerCase();
     const password = input.password ?? '';
 
@@ -199,9 +265,10 @@ export class AuthService {
       throw new BadRequestException('Informe e-mail e senha.');
     }
 
-    const row = this.sqlite.connection
-      .prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)')
-      .get(email) as unknown as UserRow | undefined;
+    const row = await this.db.queryOne<UserRow>(
+      'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
+      [email],
+    );
 
     if (!row) {
       throw new UnauthorizedException('E-mail ou senha inválidos.');
@@ -218,36 +285,36 @@ export class AuthService {
     }
 
     const user = this.toAuthUser(row);
-    const token = this.createSession(user.id);
+    const token = await this.createSession(user.id);
     return { user, token };
   }
 
-  logout(token?: string | null): void {
+  async logout(token?: string | null): Promise<void> {
     if (!token) return;
     const tokenHash = this.hashToken(token);
-    this.sqlite.connection
-      .prepare('DELETE FROM sessions WHERE token_hash = ?')
-      .run(tokenHash);
+    await this.db.execute('DELETE FROM sessions WHERE token_hash = ?', [
+      tokenHash,
+    ]);
   }
 
-  getUserBySessionToken(token?: string | null): AuthUser | null {
+  async getUserBySessionToken(token?: string | null): Promise<AuthUser | null> {
     if (!token) return null;
     const tokenHash = this.hashToken(token);
-    const db = this.sqlite.connection;
 
-    const row = db
-      .prepare(
-        `SELECT u.*, s.expires_at
-         FROM sessions s
-         INNER JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = ?`,
-      )
-      .get(tokenHash) as unknown as (UserRow & { expires_at: string }) | undefined;
+    const row = await this.db.queryOne<UserRow & { expires_at: string }>(
+      `SELECT u.*, s.expires_at
+       FROM sessions s
+       INNER JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ?`,
+      [tokenHash],
+    );
 
     if (!row) return null;
 
     if (new Date(row.expires_at).getTime() <= Date.now()) {
-      db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
+      await this.db.execute('DELETE FROM sessions WHERE token_hash = ?', [
+        tokenHash,
+      ]);
       return null;
     }
 
@@ -325,16 +392,17 @@ export class AuthService {
     const displayName = profile.name?.trim() || email.split('@')[0];
     const avatarUrl = profile.picture?.trim() || null;
     const now = new Date().toISOString();
-    const db = this.sqlite.connection;
 
-    let userRow = db
-      .prepare('SELECT * FROM users WHERE google_id = ?')
-      .get(profile.sub) as unknown as UserRow | undefined;
+    let userRow = await this.db.queryOne<UserRow>(
+      'SELECT * FROM users WHERE google_id = ?',
+      [profile.sub],
+    );
 
     if (!userRow) {
-      userRow = db
-        .prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)')
-        .get(email) as unknown as UserRow | undefined;
+      userRow = await this.db.queryOne<UserRow>(
+        'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
+        [email],
+      );
     }
 
     let userId: string;
@@ -343,25 +411,28 @@ export class AuthService {
       const nextProvider: AuthProvider = userRow.password_hash
         ? 'both'
         : 'google';
-      db.prepare(
+      await this.db.execute(
         `UPDATE users
          SET google_id = ?, avatar_url = COALESCE(?, avatar_url), provider = ?, updated_at = ?
          WHERE id = ?`,
-      ).run(profile.sub, avatarUrl, nextProvider, now, userId);
+        [profile.sub, avatarUrl, nextProvider, now, userId],
+      );
     } else {
       userId = randomUUID();
-      db.prepare(
+      await this.db.execute(
         `INSERT INTO users (id, name, email, google_id, avatar_url, provider, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'google', ?, ?)`,
-      ).run(userId, displayName, email, profile.sub, avatarUrl, now, now);
+        [userId, displayName, email, profile.sub, avatarUrl, now, now],
+      );
     }
 
-    const updatedRow = db
-      .prepare('SELECT * FROM users WHERE id = ?')
-      .get(userId) as unknown as UserRow;
+    const updatedRow = (await this.db.queryOne<UserRow>(
+      'SELECT * FROM users WHERE id = ?',
+      [userId],
+    ))!;
 
     const user = this.toAuthUser(updatedRow);
-    const token = this.createSession(user.id);
+    const token = await this.createSession(user.id);
     return { user, token };
   }
 
@@ -392,7 +463,7 @@ export class AuthService {
     return null;
   }
 
-  private createSession(userId: string): string {
+  private async createSession(userId: string): Promise<string> {
     const token = randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(token);
     const now = new Date();
@@ -400,12 +471,11 @@ export class AuthService {
       now.getTime() + this.getSessionMaxAgeMs(),
     ).toISOString();
 
-    this.sqlite.connection
-      .prepare(
-        `INSERT INTO sessions (token_hash, user_id, expires_at, created_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(tokenHash, userId, expiresAt, now.toISOString());
+    await this.db.execute(
+      `INSERT INTO sessions (token_hash, user_id, expires_at, created_at)
+       VALUES (?, ?, ?, ?)`,
+      [tokenHash, userId, expiresAt, now.toISOString()],
+    );
 
     return token;
   }

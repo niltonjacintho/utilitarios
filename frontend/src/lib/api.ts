@@ -74,7 +74,8 @@ export async function fetchHubConfig(): Promise<{
   try {
     const response = await fetch(`${API_BASE_URL}/hub`, {
       cache: 'no-store',
-      signal: AbortSignal.timeout(2500),
+      credentials: 'include',
+      signal: AbortSignal.timeout(4000),
     });
 
     if (!response.ok) {

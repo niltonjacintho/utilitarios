@@ -7,7 +7,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { GeminiService } from '../ai/gemini.service';
 import { AuthUser } from '../auth/auth.types';
-import { SqliteService } from '../database/sqlite.service';
+import { DatabaseService } from '../database/database.service';
 import {
   CreateFlowchartInput,
   FlowchartAccessLevel,
@@ -120,46 +120,44 @@ export function getDefaultNodeSize(type: FlowchartNodeType): {
 @Injectable()
 export class FlowchartService {
   constructor(
-    private readonly sqlite: SqliteService,
+    private readonly db: DatabaseService,
     private readonly geminiService: GeminiService,
   ) {}
 
-  list(
+  async list(
     user: AuthUser,
     filters?: {
       scope?: 'mine' | 'shared' | 'archived';
       q?: string;
       status?: string;
     },
-  ): FlowchartSummary[] {
-    const db = this.sqlite.connection;
+  ): Promise<FlowchartSummary[]> {
     const scope = filters?.scope ?? 'mine';
     const q = filters?.q?.trim().toLowerCase() ?? '';
     const statusFilter = filters?.status?.trim() ?? '';
 
-    const rows = db
-      .prepare(
-        `SELECT
-          f.*,
-          COALESCE(u.name, f.owner) AS owner,
-          (
-            SELECT s.permission
-            FROM flowchart_shares s
-            WHERE s.flowchart_id = f.id AND LOWER(s.target) = LOWER(?)
-            LIMIT 1
-          ) AS shared_permission
-         FROM flowcharts f
-         LEFT JOIN users u ON u.id = f.owner_id
-         WHERE (
-           f.owner_id = ?
-           OR EXISTS (
-             SELECT 1 FROM flowchart_shares s
-             WHERE s.flowchart_id = f.id AND LOWER(s.target) = LOWER(?)
-           )
+    const rows = await this.db.queryAll<FlowchartRow>(
+      `SELECT
+        f.*,
+        COALESCE(u.name, f.owner) AS owner,
+        (
+          SELECT s.permission
+          FROM flowchart_shares s
+          WHERE s.flowchart_id = f.id AND LOWER(s.target) = LOWER(?)
+          LIMIT 1
+        ) AS shared_permission
+       FROM flowcharts f
+       LEFT JOIN users u ON u.id = f.owner_id
+       WHERE (
+         f.owner_id = ?
+         OR EXISTS (
+           SELECT 1 FROM flowchart_shares s
+           WHERE s.flowchart_id = f.id AND LOWER(s.target) = LOWER(?)
          )
-         ORDER BY f.updated_at DESC`,
-      )
-      .all(user.email, user.id, user.email) as unknown as FlowchartRow[];
+       )
+       ORDER BY f.updated_at DESC`,
+      [user.email, user.id, user.email],
+    );
 
     return rows
       .map((row) => this.toSummary(user, row))
@@ -187,26 +185,23 @@ export class FlowchartService {
       });
   }
 
-  findById(user: AuthUser, id: string): FlowchartRecord {
-    const { row, accessLevel } = this.loadAuthorizedRow(user, id);
-    const db = this.sqlite.connection;
+  async findById(user: AuthUser, id: string): Promise<FlowchartRecord> {
+    const { row, accessLevel } = await this.loadAuthorizedRow(user, id);
 
-    const shares = db
-      .prepare(
-        'SELECT id, target, permission, created_at FROM flowchart_shares WHERE flowchart_id = ? ORDER BY created_at ASC',
-      )
-      .all(id) as unknown as ShareRow[];
+    const shares = await this.db.queryAll<ShareRow>(
+      'SELECT id, target, permission, created_at FROM flowchart_shares WHERE flowchart_id = ? ORDER BY created_at ASC',
+      [id],
+    );
 
-    const versions = db
-      .prepare(
-        'SELECT id, label, author, created_at FROM flowchart_versions WHERE flowchart_id = ? ORDER BY created_at DESC',
-      )
-      .all(id) as unknown as Array<{
+    const versions = await this.db.queryAll<{
       id: string;
       label: string;
       author: string;
       created_at: string;
-    }>;
+    }>(
+      'SELECT id, label, author, created_at FROM flowchart_versions WHERE flowchart_id = ? ORDER BY created_at DESC',
+      [id],
+    );
 
     const lanes = this.safeJson<FlowchartLane[]>(row.lanes_json, []);
     const nodes = this.safeJson<FlowchartNode[]>(row.nodes_json, []);
@@ -248,7 +243,10 @@ export class FlowchartService {
     };
   }
 
-  create(user: AuthUser, input: CreateFlowchartInput): FlowchartRecord {
+  async create(
+    user: AuthUser,
+    input: CreateFlowchartInput,
+  ): Promise<FlowchartRecord> {
     const name = input.name?.trim();
     if (!name) {
       throw new BadRequestException('O nome do fluxograma é obrigatório.');
@@ -312,16 +310,14 @@ export class FlowchartService {
             { id: `edge_${randomUUID().slice(0, 8)}`, sourceId: procId, targetId: endId },
           ];
 
-    this.sqlite.connection
-      .prepare(
-        `INSERT INTO flowcharts (
-           id, owner_id, name, description, tags_json, status, archived, owner,
-           background_color, lanes_json, nodes_json, edges_json, comments_json,
-           created_at, updated_at
-         )
-         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, '[]', ?, ?)`,
-      )
-      .run(
+    await this.db.execute(
+      `INSERT INTO flowcharts (
+         id, owner_id, name, description, tags_json, status, archived, owner,
+         background_color, lanes_json, nodes_json, edges_json, comments_json,
+         created_at, updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, '[]', ?, ?)`,
+      [
         id,
         user.id,
         name,
@@ -335,24 +331,24 @@ export class FlowchartService {
         JSON.stringify(edges),
         now,
         now,
-      );
+      ],
+    );
 
     return this.findById(user, id);
   }
 
-  update(
+  async update(
     user: AuthUser,
     id: string,
     input: UpdateFlowchartInput,
-  ): FlowchartRecord {
-    const existing = this.findById(user, id);
+  ): Promise<FlowchartRecord> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel === 'view') {
       throw new ForbiddenException(
         'Você possui permissão apenas de leitura neste fluxograma.',
       );
     }
 
-    const db = this.sqlite.connection;
     const now = new Date().toISOString();
 
     const name = input.name?.trim() || existing.name;
@@ -371,58 +367,56 @@ export class FlowchartService {
       ? input.comments
       : existing.comments;
 
-    db.exec('BEGIN');
-    try {
-      db.prepare(
+    await this.db.transaction(async (tx) => {
+      await tx.execute(
         `UPDATE flowcharts
          SET name = ?, description = ?, tags_json = ?, status = ?, archived = ?,
              background_color = ?, lanes_json = ?, nodes_json = ?, edges_json = ?,
              comments_json = ?, updated_at = ?
          WHERE id = ?`,
-      ).run(
-        name,
-        description,
-        JSON.stringify(tags),
-        status,
-        archived,
-        backgroundColor,
-        JSON.stringify(lanes),
-        JSON.stringify(nodes),
-        JSON.stringify(edges),
-        JSON.stringify(comments),
-        now,
-        id,
+        [
+          name,
+          description,
+          JSON.stringify(tags),
+          status,
+          archived,
+          backgroundColor,
+          JSON.stringify(lanes),
+          JSON.stringify(nodes),
+          JSON.stringify(edges),
+          JSON.stringify(comments),
+          now,
+          id,
+        ],
       );
 
       if (Array.isArray(input.shares) && existing.accessLevel === 'owner') {
-        db.prepare('DELETE FROM flowchart_shares WHERE flowchart_id = ?').run(id);
-        const insertShare = db.prepare(
-          'INSERT INTO flowchart_shares (id, flowchart_id, target, permission, created_at) VALUES (?, ?, ?, ?, ?)',
+        await tx.execute(
+          'DELETE FROM flowchart_shares WHERE flowchart_id = ?',
+          [id],
         );
         for (const share of input.shares) {
           const cleanTarget = share.target?.trim();
           if (!cleanTarget) continue;
-          insertShare.run(
-            share.id || randomUUID(),
-            id,
-            cleanTarget,
-            share.permission === 'view' ? 'view' : 'edit',
-            share.createdAt || now,
+          await tx.execute(
+            'INSERT INTO flowchart_shares (id, flowchart_id, target, permission, created_at) VALUES (?, ?, ?, ?, ?)',
+            [
+              share.id || randomUUID(),
+              id,
+              cleanTarget,
+              share.permission === 'view' ? 'view' : 'edit',
+              share.createdAt || now,
+            ],
           );
         }
       }
-
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
+    });
 
     return this.findById(user, id);
   }
 
-  duplicate(user: AuthUser, id: string): FlowchartRecord {
-    const existing = this.findById(user, id);
+  async duplicate(user: AuthUser, id: string): Promise<FlowchartRecord> {
+    const existing = await this.findById(user, id);
     return this.create(user, {
       name: `${existing.name} (cópia)`,
       description: existing.description,
@@ -435,26 +429,27 @@ export class FlowchartService {
     });
   }
 
-  remove(user: AuthUser, id: string): { deleted: true; id: string } {
-    const existing = this.findById(user, id);
+  async remove(
+    user: AuthUser,
+    id: string,
+  ): Promise<{ deleted: true; id: string }> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel !== 'owner') {
       throw new ForbiddenException(
         'Apenas o proprietário pode excluir este fluxograma.',
       );
     }
 
-    this.sqlite.connection
-      .prepare('DELETE FROM flowcharts WHERE id = ?')
-      .run(id);
+    await this.db.execute('DELETE FROM flowcharts WHERE id = ?', [id]);
     return { deleted: true, id };
   }
 
-  createVersion(
+  async createVersion(
     user: AuthUser,
     id: string,
     label?: string,
-  ): FlowchartRecord {
-    const existing = this.findById(user, id);
+  ): Promise<FlowchartRecord> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel === 'view') {
       throw new ForbiddenException('Sem permissão para criar versão.');
     }
@@ -472,31 +467,29 @@ export class FlowchartService {
       backgroundColor: existing.backgroundColor,
     };
 
-    this.sqlite.connection
-      .prepare(
-        `INSERT INTO flowchart_versions (id, flowchart_id, label, author, snapshot_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(versionId, id, cleanLabel, user.name, JSON.stringify(snapshot), now);
+    await this.db.execute(
+      `INSERT INTO flowchart_versions (id, flowchart_id, label, author, snapshot_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [versionId, id, cleanLabel, user.name, JSON.stringify(snapshot), now],
+    );
 
     return this.findById(user, id);
   }
 
-  restoreVersion(
+  async restoreVersion(
     user: AuthUser,
     id: string,
     versionId: string,
-  ): FlowchartRecord {
-    const existing = this.findById(user, id);
+  ): Promise<FlowchartRecord> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel === 'view') {
       throw new ForbiddenException('Sem permissão para restaurar versão.');
     }
 
-    const row = this.sqlite.connection
-      .prepare(
-        'SELECT * FROM flowchart_versions WHERE id = ? AND flowchart_id = ?',
-      )
-      .get(versionId, id) as unknown as VersionRow | undefined;
+    const row = await this.db.queryOne<VersionRow>(
+      'SELECT * FROM flowchart_versions WHERE id = ? AND flowchart_id = ?',
+      [versionId, id],
+    );
 
     if (!row) {
       throw new NotFoundException('Versão não encontrada.');
@@ -540,7 +533,7 @@ export class FlowchartService {
     id: string,
     input: GenerateFlowchartAiInput,
   ): Promise<FlowchartRecord> {
-    const existing = this.findById(user, id);
+    const existing = await this.findById(user, id);
     if (existing.accessLevel === 'view') {
       throw new ForbiddenException(
         'Você possui permissão apenas de leitura neste fluxograma.',
@@ -564,7 +557,7 @@ export class FlowchartService {
     user: AuthUser,
     id: string,
   ): Promise<FlowchartAiSummary> {
-    const chart = this.findById(user, id);
+    const chart = await this.findById(user, id);
 
     if (!this.geminiService.isConfigured()) {
       return this.buildFallbackSummary(chart);
@@ -886,19 +879,17 @@ export class FlowchartService {
     }
   }
 
-  private loadAuthorizedRow(
+  private async loadAuthorizedRow(
     user: AuthUser,
     id: string,
-  ): { row: FlowchartRow; accessLevel: FlowchartAccessLevel } {
-    const db = this.sqlite.connection;
-    const row = db
-      .prepare(
-        `SELECT f.*, COALESCE(u.name, f.owner) AS owner
-         FROM flowcharts f
-         LEFT JOIN users u ON u.id = f.owner_id
-         WHERE f.id = ?`,
-      )
-      .get(id) as unknown as FlowchartRow | undefined;
+  ): Promise<{ row: FlowchartRow; accessLevel: FlowchartAccessLevel }> {
+    const row = await this.db.queryOne<FlowchartRow>(
+      `SELECT f.*, COALESCE(u.name, f.owner) AS owner
+       FROM flowcharts f
+       LEFT JOIN users u ON u.id = f.owner_id
+       WHERE f.id = ?`,
+      [id],
+    );
 
     if (!row) {
       throw new NotFoundException(`Fluxograma "${id}" não encontrado.`);
@@ -908,13 +899,12 @@ export class FlowchartService {
       return { row, accessLevel: 'owner' };
     }
 
-    const share = db
-      .prepare(
-        `SELECT permission FROM flowchart_shares
-         WHERE flowchart_id = ? AND LOWER(target) = LOWER(?)
-         LIMIT 1`,
-      )
-      .get(id, user.email) as { permission: 'view' | 'edit' } | undefined;
+    const share = await this.db.queryOne<{ permission: 'view' | 'edit' }>(
+      `SELECT permission FROM flowchart_shares
+       WHERE flowchart_id = ? AND LOWER(target) = LOWER(?)
+       LIMIT 1`,
+      [id, user.email],
+    );
 
     if (!share) {
       throw new ForbiddenException(

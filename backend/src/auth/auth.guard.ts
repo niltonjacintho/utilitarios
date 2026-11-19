@@ -11,10 +11,10 @@ import { AuthenticatedRequest } from './auth.types';
 export class AuthGuard implements CanActivate {
   constructor(private readonly authService: AuthService) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = this.authService.extractSessionToken(req);
-    const user = this.authService.getUserBySessionToken(token);
+    const user = await this.authService.getUserBySessionToken(token);
 
     if (!user) {
       throw new UnauthorizedException(

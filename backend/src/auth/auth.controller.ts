@@ -27,9 +27,9 @@ export class AuthController {
   }
 
   @Get('me')
-  me(@Req() req: Request) {
+  async me(@Req() req: Request) {
     const token = this.authService.extractSessionToken(req);
-    const user = this.authService.getUserBySessionToken(token);
+    const user = await this.authService.getUserBySessionToken(token);
     return {
       authenticated: Boolean(user),
       user,
@@ -37,29 +37,32 @@ export class AuthController {
   }
 
   @Post('register')
-  register(
+  async register(
     @Body() body: RegisterInput,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { user, token } = this.authService.register(body);
+    const { user, token } = await this.authService.register(body);
     this.setSessionCookie(res, token);
     return { user };
   }
 
   @Post('login')
   @HttpCode(200)
-  login(@Body() body: LoginInput, @Res({ passthrough: true }) res: Response) {
-    const { user, token } = this.authService.login(body);
+  async login(
+    @Body() body: LoginInput,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, token } = await this.authService.login(body);
     this.setSessionCookie(res, token);
     return { user };
   }
 
   @Post('logout')
   @HttpCode(200)
-  logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const token = this.authService.extractSessionToken(req);
-    this.authService.logout(token);
-    res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+    await this.authService.logout(token);
+    res.clearCookie(SESSION_COOKIE_NAME, this.authService.getCookieOptions());
     return { loggedOut: true };
   }
 
@@ -83,12 +86,11 @@ export class AuthController {
     const state = randomBytes(24).toString('hex');
     const statePayload = JSON.stringify({ state, redirect: targetUrl });
 
-    res.cookie(OAUTH_STATE_COOKIE_NAME, statePayload, {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 10 * 60 * 1000,
-    });
+    res.cookie(
+      OAUTH_STATE_COOKIE_NAME,
+      statePayload,
+      this.authService.getCookieOptions(10 * 60 * 1000, true),
+    );
 
     const authUrl = this.authService.buildGoogleAuthorizationUrl(state);
     return res.redirect(authUrl);
@@ -106,7 +108,10 @@ export class AuthController {
       req,
       OAUTH_STATE_COOKIE_NAME,
     );
-    res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: '/' });
+    res.clearCookie(
+      OAUTH_STATE_COOKIE_NAME,
+      this.authService.getCookieOptions(undefined, true),
+    );
 
     let expectedState: string | null = null;
     let redirectTo = this.authService.getHubAppUrl();
@@ -154,11 +159,10 @@ export class AuthController {
   }
 
   private setSessionCookie(res: Response, token: string): void {
-    res.cookie(SESSION_COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: this.authService.getSessionMaxAgeMs(),
-    });
+    res.cookie(
+      SESSION_COOKIE_NAME,
+      token,
+      this.authService.getCookieOptions(this.authService.getSessionMaxAgeMs()),
+    );
   }
 }
