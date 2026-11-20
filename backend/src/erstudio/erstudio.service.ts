@@ -7,7 +7,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { GeminiService } from '../ai/gemini.service';
 import { AuthUser } from '../auth/auth.types';
-import { SqliteService } from '../database/sqlite.service';
+import { DatabaseService } from '../database/database.service';
 import { DbIntrospectorService } from './db-introspector.service';
 import {
   formatColumnType,
@@ -64,87 +64,89 @@ interface ShareRow {
 @Injectable()
 export class ErStudioService {
   constructor(
-    private readonly sqlite: SqliteService,
+    private readonly db: DatabaseService,
     private readonly geminiService: GeminiService,
     private readonly introspector: DbIntrospectorService,
   ) {}
 
-  listUsersForSharing(currentUser: AuthUser): Array<{
-    id: string;
-    name: string;
-    email: string;
-  }> {
-    return this.sqlite.connection
-      .prepare(
-        'SELECT id, name, email FROM users WHERE id != ? ORDER BY name ASC',
-      )
-      .all(currentUser.id) as Array<{
+  async listUsersForSharing(currentUser: AuthUser): Promise<
+    Array<{
       id: string;
       name: string;
       email: string;
-    }>;
+    }>
+  > {
+    return this.db.queryAll<{ id: string; name: string; email: string }>(
+      'SELECT id, name, email FROM users WHERE id != ? ORDER BY name ASC',
+      [currentUser.id],
+    );
   }
 
-  list(
+  async list(
     user: AuthUser,
-    filters?: { scope?: 'all' | 'mine' | 'shared'; q?: string; sort?: 'recent' | 'name' },
-  ): ErProjectSummary[] {
-    const db = this.sqlite.connection;
+    filters?: {
+      scope?: 'all' | 'mine' | 'shared';
+      q?: string;
+      sort?: 'recent' | 'name';
+    },
+  ): Promise<ErProjectSummary[]> {
     const scope = filters?.scope ?? 'all';
     const q = filters?.q?.trim().toLowerCase() ?? '';
     const sort = filters?.sort ?? 'recent';
 
-    const rows = db
-      .prepare(
-        `SELECT
-           p.*,
-           COALESCE(u.name, p.owner) AS owner,
-           (
-             SELECT s.permission FROM er_project_shares s
-             WHERE s.project_id = p.id AND LOWER(s.target) = LOWER(?)
-             LIMIT 1
-           ) AS shared_permission
-         FROM er_projects p
-         LEFT JOIN users u ON u.id = p.owner_id
-         WHERE (
-           p.owner_id = ?
-           OR EXISTS (
-             SELECT 1 FROM er_project_shares s
-             WHERE s.project_id = p.id AND LOWER(s.target) = LOWER(?)
-           )
+    const rows = await this.db.queryAll<ErProjectRow>(
+      `SELECT
+         p.*,
+         COALESCE(u.name, p.owner) AS owner,
+         (
+           SELECT s.permission FROM er_project_shares s
+           WHERE s.project_id = p.id AND LOWER(s.target) = LOWER(?)
+           LIMIT 1
+         ) AS shared_permission
+       FROM er_projects p
+       LEFT JOIN users u ON u.id = p.owner_id
+       WHERE (
+         p.owner_id = ?
+         OR EXISTS (
+           SELECT 1 FROM er_project_shares s
+           WHERE s.project_id = p.id AND LOWER(s.target) = LOWER(?)
          )
-         ORDER BY ${sort === 'name' ? 'LOWER(p.name) ASC' : 'p.updated_at DESC'}`,
-      )
-      .all(user.email, user.id, user.email) as unknown as ErProjectRow[];
+       )
+       ORDER BY ${sort === 'name' ? 'LOWER(p.name) ASC' : 'p.updated_at DESC'}`,
+      [user.email, user.id, user.email],
+    );
 
-    const summaries: ErProjectSummary[] = rows.map((row) => {
-      const shareRows = db
-        .prepare('SELECT target FROM er_project_shares WHERE project_id = ?')
-        .all(row.id) as Array<{ target: string }>;
-      const tables = this.safeJson<ErTable[]>(row.tables_json, []);
-      const subModels = this.safeJson<ErSubModel[]>(row.submodels_json, []);
-      const accessLevel: ErAccessLevel =
-        row.owner_id === user.id
-          ? 'owner'
-          : row.shared_permission === 'view'
-            ? 'view'
-            : 'edit';
+    const summaries: ErProjectSummary[] = await Promise.all(
+      rows.map(async (row) => {
+        const shareRows = await this.db.queryAll<{ target: string }>(
+          'SELECT target FROM er_project_shares WHERE project_id = ?',
+          [row.id],
+        );
+        const tables = this.safeJson<ErTable[]>(row.tables_json, []);
+        const subModels = this.safeJson<ErSubModel[]>(row.submodels_json, []);
+        const accessLevel: ErAccessLevel =
+          row.owner_id === user.id
+            ? 'owner'
+            : row.shared_permission === 'view'
+              ? 'view'
+              : 'edit';
 
-      return {
-        id: row.id,
-        ownerId: row.owner_id,
-        name: row.name,
-        description: row.description,
-        dialect: row.dialect,
-        owner: row.owner,
-        accessLevel,
-        subModelCount: subModels.length,
-        tableCount: tables.length,
-        sharedWith: shareRows.map((s) => s.target),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
-    });
+        return {
+          id: row.id,
+          ownerId: row.owner_id,
+          name: row.name,
+          description: row.description,
+          dialect: row.dialect,
+          owner: row.owner,
+          accessLevel,
+          subModelCount: subModels.length,
+          tableCount: tables.length,
+          sharedWith: shareRows.map((s) => s.target),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      }),
+    );
 
     return summaries.filter((item) => {
       if (scope === 'mine' && item.accessLevel !== 'owner') return false;
@@ -157,13 +159,12 @@ export class ErStudioService {
     });
   }
 
-  findById(user: AuthUser, id: string): ErProjectRecord {
-    const { row, accessLevel } = this.loadAuthorizedRow(user, id);
-    const shares = this.sqlite.connection
-      .prepare(
-        'SELECT id, target, permission, created_at FROM er_project_shares WHERE project_id = ? ORDER BY created_at ASC',
-      )
-      .all(id) as unknown as ShareRow[];
+  async findById(user: AuthUser, id: string): Promise<ErProjectRecord> {
+    const { row, accessLevel } = await this.loadAuthorizedRow(user, id);
+    const shares = await this.db.queryAll<ShareRow>(
+      'SELECT id, target, permission, created_at FROM er_project_shares WHERE project_id = ? ORDER BY created_at ASC',
+      [id],
+    );
 
     const tables = this.safeJson<ErTable[]>(row.tables_json, []);
     const relations = this.safeJson<ErRelation[]>(row.relations_json, []);
@@ -207,7 +208,10 @@ export class ErStudioService {
     };
   }
 
-  create(user: AuthUser, input: CreateErProjectInput): ErProjectRecord {
+  async create(
+    user: AuthUser,
+    input: CreateErProjectInput,
+  ): Promise<ErProjectRecord> {
     const name = input.name?.trim();
     if (!name) {
       throw new BadRequestException('O nome do projeto é obrigatório.');
@@ -253,17 +257,15 @@ export class ErStudioService {
       },
     ];
 
-    this.sqlite.connection
-      .prepare(
-        `INSERT INTO er_projects (
-           id, owner_id, name, description, dialect, owner,
-           tables_json, relations_json, submodels_json, active_submodel_id,
-           db_config_json, pending_changes_json, history_json,
-           created_at, updated_at
-         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?, ?)`,
-      )
-      .run(
+    await this.db.execute(
+      `INSERT INTO er_projects (
+         id, owner_id, name, description, dialect, owner,
+         tables_json, relations_json, submodels_json, active_submodel_id,
+         db_config_json, pending_changes_json, history_json,
+         created_at, updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '[]', ?, ?, ?)`,
+      [
         id,
         user.id,
         name,
@@ -277,24 +279,24 @@ export class ErStudioService {
         JSON.stringify(history),
         now,
         now,
-      );
+      ],
+    );
 
     return this.findById(user, id);
   }
 
-  update(
+  async update(
     user: AuthUser,
     id: string,
     input: UpdateErProjectInput,
-  ): ErProjectRecord {
-    const existing = this.findById(user, id);
+  ): Promise<ErProjectRecord> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel === 'view') {
       throw new ForbiddenException(
         'Você possui permissão apenas de leitura neste projeto.',
       );
     }
 
-    const db = this.sqlite.connection;
     const now = new Date().toISOString();
 
     const name = input.name?.trim() || existing.name;
@@ -319,75 +321,74 @@ export class ErStudioService {
       ? input.history
       : existing.history;
 
-    db.exec('BEGIN');
-    try {
-      db.prepare(
+    await this.db.transaction(async (tx) => {
+      await tx.execute(
         `UPDATE er_projects
          SET name = ?, description = ?, dialect = ?,
              tables_json = ?, relations_json = ?, submodels_json = ?,
              active_submodel_id = ?, db_config_json = ?,
              pending_changes_json = ?, history_json = ?, updated_at = ?
          WHERE id = ?`,
-      ).run(
-        name,
-        description,
-        dialect,
-        JSON.stringify(tables),
-        JSON.stringify(relations),
-        JSON.stringify(subModels),
-        activeSubModelId,
-        dbConfig ? JSON.stringify(dbConfig) : null,
-        JSON.stringify(pendingChanges),
-        JSON.stringify(history.slice(0, 60)),
-        now,
-        id,
+        [
+          name,
+          description,
+          dialect,
+          JSON.stringify(tables),
+          JSON.stringify(relations),
+          JSON.stringify(subModels),
+          activeSubModelId,
+          dbConfig ? JSON.stringify(dbConfig) : null,
+          JSON.stringify(pendingChanges),
+          JSON.stringify(history.slice(0, 60)),
+          now,
+          id,
+        ],
       );
 
       if (Array.isArray(input.shares) && existing.accessLevel === 'owner') {
-        db.prepare('DELETE FROM er_project_shares WHERE project_id = ?').run(id);
-        const insertShare = db.prepare(
-          'INSERT INTO er_project_shares (id, project_id, target, permission, created_at) VALUES (?, ?, ?, ?, ?)',
-        );
+        await tx.execute('DELETE FROM er_project_shares WHERE project_id = ?', [
+          id,
+        ]);
         for (const share of input.shares) {
           const cleanTarget = share.target?.trim();
           if (!cleanTarget) continue;
-          insertShare.run(
-            share.id || randomUUID(),
-            id,
-            cleanTarget,
-            share.permission === 'view' ? 'view' : 'edit',
-            share.createdAt || now,
+          await tx.execute(
+            'INSERT INTO er_project_shares (id, project_id, target, permission, created_at) VALUES (?, ?, ?, ?, ?)',
+            [
+              share.id || randomUUID(),
+              id,
+              cleanTarget,
+              share.permission === 'view' ? 'view' : 'edit',
+              share.createdAt || now,
+            ],
           );
         }
       }
-
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
+    });
 
     return this.findById(user, id);
   }
 
-  transferOwnership(
+  async transferOwnership(
     user: AuthUser,
     id: string,
     newOwnerEmail: string,
     keepEditAccess: boolean,
-  ): ErProjectRecord {
-    const existing = this.findById(user, id);
+  ): Promise<ErProjectRecord> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel !== 'owner') {
       throw new ForbiddenException(
         'Apenas o dono atual pode transferir a posse do projeto.',
       );
     }
 
-    const targetUser = this.sqlite.connection
-      .prepare('SELECT id, name, email FROM users WHERE LOWER(email) = LOWER(?)')
-      .get(newOwnerEmail.trim()) as
-      | { id: string; name: string; email: string }
-      | undefined;
+    const targetUser = await this.db.queryOne<{
+      id: string;
+      name: string;
+      email: string;
+    }>('SELECT id, name, email FROM users WHERE LOWER(email) = LOWER(?)', [
+      newOwnerEmail.trim(),
+    ]);
 
     if (!targetUser) {
       throw new NotFoundException(
@@ -395,49 +396,52 @@ export class ErStudioService {
       );
     }
 
-    const db = this.sqlite.connection;
     const now = new Date().toISOString();
 
-    db.exec('BEGIN');
-    try {
-      db.prepare(
+    await this.db.transaction(async (tx) => {
+      await tx.execute(
         'UPDATE er_projects SET owner_id = ?, owner = ?, updated_at = ? WHERE id = ?',
-      ).run(targetUser.id, targetUser.name, now, id);
+        [targetUser.id, targetUser.name, now, id],
+      );
 
-      // Remove o novo dono da tabela de compartilhamentos se já estivesse lá
-      db.prepare(
+      await tx.execute(
         'DELETE FROM er_project_shares WHERE project_id = ? AND LOWER(target) = LOWER(?)',
-      ).run(id, targetUser.email);
+        [id, targetUser.email],
+      );
 
       if (keepEditAccess && targetUser.id !== user.id) {
-        db.prepare(
+        await tx.execute(
           `INSERT INTO er_project_shares (id, project_id, target, permission, created_at)
            VALUES (?, ?, ?, 'edit', ?)`,
-        ).run(randomUUID(), id, user.email, now);
+          [randomUUID(), id, user.email, now],
+        );
       }
-
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
+    });
 
     return this.findById(
-      keepEditAccess ? user : { ...user, id: targetUser.id, email: targetUser.email, name: targetUser.name },
+      keepEditAccess
+        ? user
+        : {
+            ...user,
+            id: targetUser.id,
+            email: targetUser.email,
+            name: targetUser.name,
+          },
       id,
     );
   }
 
-  remove(user: AuthUser, id: string): { deleted: true; id: string } {
-    const existing = this.findById(user, id);
+  async remove(
+    user: AuthUser,
+    id: string,
+  ): Promise<{ deleted: true; id: string }> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel !== 'owner') {
       throw new ForbiddenException(
         'Apenas o proprietário pode excluir este projeto.',
       );
     }
-    this.sqlite.connection
-      .prepare('DELETE FROM er_projects WHERE id = ?')
-      .run(id);
+    await this.db.execute('DELETE FROM er_projects WHERE id = ?', [id]);
     return { deleted: true, id };
   }
 
@@ -450,7 +454,7 @@ export class ErStudioService {
     id: string,
     config: ErDbConnectionTestInput,
   ): Promise<ErProjectRecord> {
-    const existing = this.findById(user, id);
+    const existing = await this.findById(user, id);
     if (existing.accessLevel === 'view') {
       throw new ForbiddenException('Sem permissão de edição neste projeto.');
     }
@@ -525,13 +529,13 @@ export class ErStudioService {
     });
   }
 
-  importDdl(
+  async importDdl(
     user: AuthUser,
     id: string,
     ddl: string,
     mode: 'replace' | 'merge' = 'replace',
-  ): ErProjectRecord {
-    const existing = this.findById(user, id);
+  ): Promise<ErProjectRecord> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel === 'view') {
       throw new ForbiddenException('Sem permissão de edição neste projeto.');
     }
@@ -623,7 +627,7 @@ export class ErStudioService {
     id: string,
     prompt: string,
   ): Promise<ErAiPlanResponse> {
-    const project = this.findById(user, id);
+    const project = await this.findById(user, id);
     if (project.accessLevel === 'view') {
       throw new ForbiddenException('Sem permissão de edição neste projeto.');
     }
@@ -690,7 +694,7 @@ export class ErStudioService {
     id: string,
     subModelId: string,
   ): Promise<ErAiSummary> {
-    const project = this.findById(user, id);
+    const project = await this.findById(user, id);
     const subModel =
       project.subModels.find((s) => s.id === subModelId) ??
       project.subModels[0];
@@ -902,19 +906,17 @@ export class ErStudioService {
     };
   }
 
-  private loadAuthorizedRow(
+  private async loadAuthorizedRow(
     user: AuthUser,
     id: string,
-  ): { row: ErProjectRow; accessLevel: ErAccessLevel } {
-    const db = this.sqlite.connection;
-    const row = db
-      .prepare(
-        `SELECT p.*, COALESCE(u.name, p.owner) AS owner
-         FROM er_projects p
-         LEFT JOIN users u ON u.id = p.owner_id
-         WHERE p.id = ?`,
-      )
-      .get(id) as unknown as ErProjectRow | undefined;
+  ): Promise<{ row: ErProjectRow; accessLevel: ErAccessLevel }> {
+    const row = await this.db.queryOne<ErProjectRow>(
+      `SELECT p.*, COALESCE(u.name, p.owner) AS owner
+       FROM er_projects p
+       LEFT JOIN users u ON u.id = p.owner_id
+       WHERE p.id = ?`,
+      [id],
+    );
 
     if (!row) {
       throw new NotFoundException(`Projeto ER "${id}" não encontrado.`);
@@ -924,13 +926,12 @@ export class ErStudioService {
       return { row, accessLevel: 'owner' };
     }
 
-    const share = db
-      .prepare(
-        `SELECT permission FROM er_project_shares
-         WHERE project_id = ? AND LOWER(target) = LOWER(?)
-         LIMIT 1`,
-      )
-      .get(id, user.email) as { permission: 'view' | 'edit' } | undefined;
+    const share = await this.db.queryOne<{ permission: 'view' | 'edit' }>(
+      `SELECT permission FROM er_project_shares
+       WHERE project_id = ? AND LOWER(target) = LOWER(?)
+       LIMIT 1`,
+      [id, user.email],
+    );
 
     if (!share) {
       throw new ForbiddenException(

@@ -1,0 +1,37 @@
+# Blueprint opcional para deploy do backend NestJS no Render (Free Tier)
+# Banco de dados: conecte um PostgreSQL gratuito do Neon em DATABASE_URL
+services:
+  - type: web
+    name: hub-prototipos-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: HUB_APP_URL
+        sync: false
+      - key: MINDMAP_APP_URL
+        sync: false
+      - key: FLOWCHART_APP_URL
+        sync: false
+      - key: ERSTUDIO_APP_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.1-flash-lite
+      - key: GEMINI_FALLBACK_MODELS
+        value: gemini-3-flash-preview,gemini-flash-lite-latest,gemini-3.8-flash

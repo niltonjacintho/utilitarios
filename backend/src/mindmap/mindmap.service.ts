@@ -7,7 +7,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { GeminiService } from '../ai/gemini.service';
 import { AuthUser } from '../auth/auth.types';
-import { SqliteService } from '../database/sqlite.service';
+import { DatabaseService } from '../database/database.service';
 import {
   CreateMindMapInput,
   ExpandNodeAiInput,
@@ -56,12 +56,11 @@ interface RawAiNode {
 @Injectable()
 export class MindMapService {
   constructor(
-    private readonly sqlite: SqliteService,
+    private readonly db: DatabaseService,
     private readonly geminiService: GeminiService,
   ) {}
 
-  list(user: AuthUser, search?: string): MindMapSummary[] {
-    const db = this.sqlite.connection;
+  async list(user: AuthUser, search?: string): Promise<MindMapSummary[]> {
     const trimmed = search?.trim();
 
     const baseQuery = `
@@ -93,13 +92,10 @@ export class MindMapService {
       ORDER BY m.updated_at DESC
     `;
 
-    const rows = (
-      trimmed
-        ? db
-            .prepare(baseQuery)
-            .all(user.email, user.id, user.email, `%${trimmed}%`)
-        : db.prepare(baseQuery).all(user.email, user.id, user.email)
-    ) as unknown as MindMapRow[];
+    const params = trimmed
+      ? [user.email, user.id, user.email, `%${trimmed}%`]
+      : [user.email, user.id, user.email];
+    const rows = await this.db.queryAll<MindMapRow>(baseQuery, params);
 
     return rows.map((row) => ({
       id: row.id,
@@ -107,28 +103,25 @@ export class MindMapService {
       name: row.name,
       owner: row.owner,
       accessLevel: this.resolveAccessLevel(user, row.owner_id, row.shared_permission),
-      itemCount: row.item_count,
-      completedCount: row.completed_count,
+      itemCount: Number(row.item_count),
+      completedCount: Number(row.completed_count),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
   }
 
-  findById(user: AuthUser, id: string): MindMapRecord {
-    const { row, accessLevel } = this.loadAuthorizedRow(user, id);
-    const db = this.sqlite.connection;
+  async findById(user: AuthUser, id: string): Promise<MindMapRecord> {
+    const { row, accessLevel } = await this.loadAuthorizedRow(user, id);
 
-    const executors = db
-      .prepare(
-        'SELECT id, name, created_at FROM mindmap_executors WHERE mindmap_id = ? ORDER BY created_at ASC',
-      )
-      .all(id) as unknown as ExecutorRow[];
+    const executors = await this.db.queryAll<ExecutorRow>(
+      'SELECT id, name, created_at FROM mindmap_executors WHERE mindmap_id = ? ORDER BY created_at ASC',
+      [id],
+    );
 
-    const shares = db
-      .prepare(
-        'SELECT id, target, permission, created_at FROM mindmap_shares WHERE mindmap_id = ? ORDER BY created_at ASC',
-      )
-      .all(id) as unknown as ShareRow[];
+    const shares = await this.db.queryAll<ShareRow>(
+      'SELECT id, target, permission, created_at FROM mindmap_shares WHERE mindmap_id = ? ORDER BY created_at ASC',
+      [id],
+    );
 
     return {
       id: row.id,
@@ -137,8 +130,8 @@ export class MindMapService {
       owner: row.owner,
       accessLevel,
       backgroundColor: row.background_color,
-      itemCount: row.item_count,
-      completedCount: row.completed_count,
+      itemCount: Number(row.item_count),
+      completedCount: Number(row.completed_count),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       root: JSON.parse(row.nodes_json) as MindMapNode,
@@ -156,7 +149,7 @@ export class MindMapService {
     };
   }
 
-  create(user: AuthUser, input: CreateMindMapInput): MindMapRecord {
+  async create(user: AuthUser, input: CreateMindMapInput): Promise<MindMapRecord> {
     const name = input.name?.trim();
     if (!name) {
       throw new BadRequestException('O nome do mapa é obrigatório.');
@@ -182,12 +175,10 @@ export class MindMapService {
 
     const stats = this.computeStats(root);
 
-    this.sqlite.connection
-      .prepare(
-        `INSERT INTO mindmaps (id, owner_id, name, owner, background_color, nodes_json, item_count, completed_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+    await this.db.execute(
+      `INSERT INTO mindmaps (id, owner_id, name, owner, background_color, nodes_json, item_count, completed_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         id,
         user.id,
         name,
@@ -198,20 +189,24 @@ export class MindMapService {
         stats.completedCount,
         now,
         now,
-      );
+      ],
+    );
 
     return this.findById(user, id);
   }
 
-  update(user: AuthUser, id: string, input: UpdateMindMapInput): MindMapRecord {
-    const existing = this.findById(user, id);
+  async update(
+    user: AuthUser,
+    id: string,
+    input: UpdateMindMapInput,
+  ): Promise<MindMapRecord> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel === 'view') {
       throw new ForbiddenException(
         'Você possui permissão apenas de leitura neste mapa.',
       );
     }
 
-    const db = this.sqlite.connection;
     const name = input.name?.trim() || existing.name;
     const backgroundColor =
       input.backgroundColor?.trim() || existing.backgroundColor;
@@ -219,70 +214,65 @@ export class MindMapService {
     const stats = this.computeStats(root);
     const now = new Date().toISOString();
 
-    db.exec('BEGIN');
-    try {
-      db.prepare(
+    await this.db.transaction(async (tx) => {
+      await tx.execute(
         `UPDATE mindmaps
          SET name = ?, background_color = ?, nodes_json = ?, item_count = ?, completed_count = ?, updated_at = ?
          WHERE id = ?`,
-      ).run(
-        name,
-        backgroundColor,
-        JSON.stringify(root),
-        stats.itemCount,
-        stats.completedCount,
-        now,
-        id,
+        [
+          name,
+          backgroundColor,
+          JSON.stringify(root),
+          stats.itemCount,
+          stats.completedCount,
+          now,
+          id,
+        ],
       );
 
       if (Array.isArray(input.executors)) {
-        db.prepare('DELETE FROM mindmap_executors WHERE mindmap_id = ?').run(id);
-        const insertExecutor = db.prepare(
-          'INSERT INTO mindmap_executors (id, mindmap_id, name, created_at) VALUES (?, ?, ?, ?)',
+        await tx.execute(
+          'DELETE FROM mindmap_executors WHERE mindmap_id = ?',
+          [id],
         );
         for (const executor of input.executors) {
           const cleanName = executor.name?.trim();
           if (!cleanName) continue;
-          insertExecutor.run(
-            executor.id || randomUUID(),
-            id,
-            cleanName,
-            executor.createdAt || now,
+          await tx.execute(
+            'INSERT INTO mindmap_executors (id, mindmap_id, name, created_at) VALUES (?, ?, ?, ?)',
+            [executor.id || randomUUID(), id, cleanName, executor.createdAt || now],
           );
         }
       }
 
       if (Array.isArray(input.shares) && existing.accessLevel === 'owner') {
-        db.prepare('DELETE FROM mindmap_shares WHERE mindmap_id = ?').run(id);
-        const insertShare = db.prepare(
-          'INSERT INTO mindmap_shares (id, mindmap_id, target, permission, created_at) VALUES (?, ?, ?, ?, ?)',
-        );
+        await tx.execute('DELETE FROM mindmap_shares WHERE mindmap_id = ?', [
+          id,
+        ]);
         for (const share of input.shares) {
           const cleanTarget = share.target?.trim();
           if (!cleanTarget) continue;
-          insertShare.run(
-            share.id || randomUUID(),
-            id,
-            cleanTarget,
-            share.permission === 'view' ? 'view' : 'edit',
-            share.createdAt || now,
+          await tx.execute(
+            'INSERT INTO mindmap_shares (id, mindmap_id, target, permission, created_at) VALUES (?, ?, ?, ?, ?)',
+            [
+              share.id || randomUUID(),
+              id,
+              cleanTarget,
+              share.permission === 'view' ? 'view' : 'edit',
+              share.createdAt || now,
+            ],
           );
         }
       }
-
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
+    });
 
     return this.findById(user, id);
   }
 
-  duplicate(user: AuthUser, id: string): MindMapRecord {
-    const existing = this.findById(user, id);
+  async duplicate(user: AuthUser, id: string): Promise<MindMapRecord> {
+    const existing = await this.findById(user, id);
     const clonedRoot = this.cloneWithFreshIds(existing.root);
-    const copy = this.create(user, {
+    const copy = await this.create(user, {
       name: `${existing.name} (cópia)`,
       backgroundColor: existing.backgroundColor,
       root: clonedRoot,
@@ -300,17 +290,15 @@ export class MindMapService {
     return copy;
   }
 
-  remove(user: AuthUser, id: string): { deleted: true; id: string } {
-    const existing = this.findById(user, id);
+  async remove(user: AuthUser, id: string): Promise<{ deleted: true; id: string }> {
+    const existing = await this.findById(user, id);
     if (existing.accessLevel !== 'owner') {
       throw new ForbiddenException(
         'Apenas o proprietário pode excluir este mapa.',
       );
     }
 
-    this.sqlite.connection
-      .prepare('DELETE FROM mindmaps WHERE id = ?')
-      .run(id);
+    await this.db.execute('DELETE FROM mindmaps WHERE id = ?', [id]);
     return { deleted: true, id };
   }
 
@@ -361,7 +349,7 @@ export class MindMapService {
     user: AuthUser,
     id: string,
   ): Promise<{ explanation: string; model: string }> {
-    const map = this.findById(user, id);
+    const map = await this.findById(user, id);
     const fullContext = this.serializeFullContext(map);
 
     const result = await this.geminiService.generateText({
@@ -388,7 +376,7 @@ export class MindMapService {
     user: AuthUser,
     id: string,
   ): Promise<MindMapAiSummary> {
-    const map = this.findById(user, id);
+    const map = await this.findById(user, id);
 
     if (!this.geminiService.isConfigured()) {
       return this.buildFallbackSummary(map);
@@ -442,7 +430,7 @@ export class MindMapService {
     id: string,
     input: ExpandNodeAiInput,
   ): Promise<{ children: MindMapNode[]; model: string }> {
-    const map = this.findById(user, id);
+    const map = await this.findById(user, id);
     if (map.accessLevel === 'view') {
       throw new ForbiddenException(
         'Você possui permissão apenas de leitura neste mapa.',
@@ -487,19 +475,17 @@ export class MindMapService {
     };
   }
 
-  private loadAuthorizedRow(
+  private async loadAuthorizedRow(
     user: AuthUser,
     id: string,
-  ): { row: MindMapRow; accessLevel: MindMapAccessLevel } {
-    const db = this.sqlite.connection;
-    const row = db
-      .prepare(
-        `SELECT m.*, COALESCE(u.name, m.owner) AS owner
-         FROM mindmaps m
-         LEFT JOIN users u ON u.id = m.owner_id
-         WHERE m.id = ?`,
-      )
-      .get(id) as unknown as MindMapRow | undefined;
+  ): Promise<{ row: MindMapRow; accessLevel: MindMapAccessLevel }> {
+    const row = await this.db.queryOne<MindMapRow>(
+      `SELECT m.*, COALESCE(u.name, m.owner) AS owner
+       FROM mindmaps m
+       LEFT JOIN users u ON u.id = m.owner_id
+       WHERE m.id = ?`,
+      [id],
+    );
 
     if (!row) {
       throw new NotFoundException(`Mapa "${id}" não encontrado.`);
@@ -509,13 +495,12 @@ export class MindMapService {
       return { row, accessLevel: 'owner' };
     }
 
-    const share = db
-      .prepare(
-        `SELECT permission FROM mindmap_shares
-         WHERE mindmap_id = ? AND LOWER(target) = LOWER(?)
-         LIMIT 1`,
-      )
-      .get(id, user.email) as { permission: 'view' | 'edit' } | undefined;
+    const share = await this.db.queryOne<{ permission: 'view' | 'edit' }>(
+      `SELECT permission FROM mindmap_shares
+       WHERE mindmap_id = ? AND LOWER(target) = LOWER(?)
+       LIMIT 1`,
+      [id, user.email],
+    );
 
     if (!share) {
       throw new ForbiddenException('Você não tem permissão para acessar este mapa.');
